@@ -1,0 +1,5 @@
+- https://medium.com/google-cloud/a-guide-to-deploy-elasticsearch-cluster-on-google-kubernetes-engine-52f67743ee98
+- https://medium.com/faun/https-medium-com-thakur-vaibhav23-ha-es-k8s-7e655c1b7b61
+- https://portworx.com/run-ha-elasticsearch-elk-azure-kubernetes-service/
+- https://code972.com/blog/2019/04/117-running-elasticsearch-on-kubernetes
+- https://techblog.commercetools.com/continuously-deploying-elasticsearch-on-kubernetes-57fdfba40670

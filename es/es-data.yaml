@@ -1,0 +1,158 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: anhties
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-config
+  namespace: anhties
+data:
+  data-pre-stop-hook.sh: |-
+    #!/bin/bash
+    exec &> >(tee -a "/var/log/elasticsearch-hooks.log")
+    NODE_NAME=${HOSTNAME}
+    echo "Prepare to migrate data of the node ${NODE_NAME}"
+    echo "Move all data from node ${NODE_NAME}"
+    curl -s -XPUT -H 'Content-Type: application/json' "http://${ELASTICSEARCH_HTTP_SERVICE_HOST}:9200/_cluster/settings" -d "{
+      \"transient\" :{
+          \"cluster.routing.allocation.exclude._name\" : \"${NODE_NAME}\"
+      }
+    }"
+    echo ""
+    while true ; do
+      echo -e "Wait for node ${NODE_NAME} to become empty"
+      SHARDS_ALLOCATION=$(curl -s -XGET "http://${ELASTICSEARCH_HTTP_SERVICE_HOST}:9200/_cat/shards")
+      if ! echo "${SHARDS_ALLOCATION}" | grep -E "${NODE_NAME}"; then
+        break
+      fi
+      sleep 1
+    done
+    echo "Node ${NODE_NAME} is ready to shutdown"
+
+---
+kind: StorageClass
+apiVersion: storage.k8s.io/v1
+metadata:
+  name: escluster-data
+  namespace: anhties
+reclaimPolicy: Retain
+provisioner: k8s.io/minikube-hostpath
+volumeBindingMode: Immediate
+
+---
+apiVersion: apps/v1beta1
+kind: StatefulSet
+metadata:
+  name: es-data
+  namespace: anhties
+  labels:
+    component: elasticsearch
+    role: data
+spec:
+  serviceName: es-data
+  replicas: 3
+  selector:
+    matchLabels:
+      component: elasticsearch
+      role: data    
+  template:
+    metadata:
+      namespace: anhties
+      labels:
+        component: elasticsearch
+        role: data
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: init-sysctl
+        image: busybox
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+      containers:
+      - name: elasticsearch
+        resources:
+            requests:
+                memory: 512Mi
+        securityContext:
+          privileged: true
+          runAsUser: 1000
+          capabilities:
+            add:
+            - IPC_LOCK
+            - SYS_RESOURCE
+        image: docker.elastic.co/elasticsearch/elasticsearch:6.4.3
+        env:
+        - name: node.name
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: cluster.name
+          value: my-es
+        - name: node.ingest
+          value: "false"
+        - name: node.master
+          value: "false"
+        - name: ES_JAVA_OPTS
+          value: -Xms256m -Xmx256m
+        - name: bootstrap.memory_lock
+          value: "false"
+        - name: discovery.zen.ping.unicast.hosts
+          value: elasticsearch-discovery
+        ports:
+        - containerPort: 9300
+          name: es-transport
+        volumeMounts:
+        - name: storage
+          mountPath: /usr/share/elasticsearch/data
+        - name: elasticsearch-config
+          mountPath: /data-pre-stop-hook.sh
+          subPath: data-pre-stop-hook.sh
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/bash","/data-pre-stop-hook.sh"]
+      volumes:
+      - name: elasticsearch-config
+        configMap:
+          name: es-config
+          items:
+            - key: data-pre-stop-hook.sh
+              path: data-pre-stop-hook.sh
+  volumeClaimTemplates:
+  - metadata:
+      name: storage
+      namespace: anhties
+      labels:
+        component: elasticsearch
+        role: data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      storageClassName: escluster-data
+      resources:
+        requests:
+          storage: 512Mi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch-data
+  namespace: anhties
+  labels:
+    component: elasticsearch
+    role: data
+spec:
+  selector:
+    component: elasticsearch
+    role: data
+  ports:
+  - name: transport
+    port: 9300
+    protocol: TCP
+  clusterIP: None
