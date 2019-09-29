@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: anhties
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: anhties
+spec:
+  selector:
+    app: nginx
+    tier: frontend
+  ports:
+  - protocol: "TCP"
+    port: 80
+    targetPort: 80
+  type: NodePort
+
+---
+apiVersion: apps/v1 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: anhties
+spec:
+  selector:
+    matchLabels:
+      app: nginx
+      tier: frontend
+  replicas: 2 # tells deployment to run 2 pods matching the template
+  template:
+    metadata:
+      namespace: anhties
+      labels:
+        app: nginx
+        tier: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.7.9
+        ports:
+        - containerPort: 80

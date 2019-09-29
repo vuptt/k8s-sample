@@ -118,6 +118,9 @@ spec:
   - name: transport
     port: 9300
     protocol: TCP
+  - name: rest
+    port: 9200
+    protocol: TCP
   clusterIP: None
 
 ---
